@@ -24,8 +24,16 @@ import matplotlib.pyplot as plt
 from io import BytesIO
 from datetime import datetime
 
+# Page config
 st.set_page_config(page_title="Retirement Simulator — 3-Bucket Refill Strategy", layout="wide")
 st.title("Retirement Simulator — 3-Bucket Refill Strategy")
+
+# Mobile layout toggle (helps mobile users who don't see sidebar easily)
+use_mobile_layout = st.checkbox(
+    "Use mobile-optimized layout (single-column inputs)",
+    value=False,
+    help="Check this to render all input controls in a single column suitable for small screens or mobile devices."
+)
 
 # -------------------------
 # Top summary for users
@@ -67,9 +75,12 @@ Share this summary with others by copying the text above or by exporting the CSV
 st.markdown("---")
 
 # -------------------------
-# Sidebar: Inputs + Unit selector (radio)
+# Sidebar or main: Inputs + Unit selector (radio)
 # -------------------------
-with st.sidebar:
+# Choose container based on mobile toggle
+inputs_container = st if use_mobile_layout else st.sidebar
+
+with inputs_container:
     st.header("Inputs")
 
     # Unit selector as radio buttons with Rupee symbol
@@ -483,16 +494,20 @@ st.line_chart(total_by_age)
 
 st.subheader("Projection Table (includes Age)")
 st.caption(f"Monetary values shown in **{unit_label}**. Inputs are entered in ₹.")
-st.dataframe(df_display, height=420)
+# adjust table height for mobile
+table_height = 320 if use_mobile_layout else 420
+st.dataframe(df_display, height=table_height)
 
 st.subheader("Bucket Composition Over Time")
 # use Age as x-axis and scale (use original column names from df)
 chart_df = df.set_index("Age")[['Bucket1', 'Bucket2', 'Bucket3']] / unit_factor
-fig, ax = plt.subplots(figsize=(9, 4))
+# adjust figure size for mobile
+stack_figsize = (6, 3) if use_mobile_layout else (9, 4)
+fig, ax = plt.subplots(figsize=stack_figsize)
 ax.stackplot(chart_df.index, chart_df['Bucket1'], chart_df['Bucket2'], chart_df['Bucket3'],
              labels=["Bucket1 Liquid", "Bucket2 Income", "Bucket3 Growth"],
              colors=["#8dd3c7", "#ffffb3", "#bebada"])
-ax.legend(loc="upper left")
+ax.legend(loc="upper left", fontsize=8)
 ax.set_ylabel(f"Amount ({unit_label})")
 ax.set_xlabel("Age")
 st.pyplot(fig)
@@ -514,7 +529,8 @@ if not refill_df.empty:
     refill_pivot = refill_pivot / unit_factor
     refill_pivot.index = refill_pivot.index + current_age  # Convert to Age
     
-    fig, ax = plt.subplots(figsize=(11, 4))
+    bar_figsize = (9, 3) if use_mobile_layout else (11, 4)
+    fig, ax = plt.subplots(figsize=bar_figsize)
     refill_pivot.plot(kind="bar", stacked=True, ax=ax,
                       color={"Bucket1 from Bucket2": "#c2e8d4", 
                              "Bucket1 from Bucket3": "#bebada",
@@ -522,8 +538,8 @@ if not refill_df.empty:
     ax.set_title(f"Refill Transfers by Source & Destination (in {unit_label})")
     ax.set_xlabel("Age")
     ax.set_ylabel(f"Amount ({unit_label})")
-    ax.legend(title="Refill Flow", loc="upper right", fontsize=9)
-    plt.xticks(rotation=45, ha='right')
+    ax.legend(title="Refill Flow", loc="upper right", fontsize=8)
+    plt.xticks(rotation=45 if not use_mobile_layout else 30, ha='right')
     plt.tight_layout()
     st.pyplot(fig)
     
@@ -538,7 +554,9 @@ if not refill_df.empty:
         "Destination": "Refilled To",
         "Source": "Refilled From"
     })
-    st.dataframe(refill_display, height=250)
+    # adjust refill table height for mobile
+    refill_table_height = 220 if use_mobile_layout else 250
+    st.dataframe(refill_display, height=refill_table_height)
     
     # Summary stats
     st.markdown("**Refill Summary by Type**")
@@ -637,4 +655,4 @@ st.download_button(
     mime="application/pdf"
 )
 
-st.markdown(f"**Notes:** This simulator displays monetary values in **{unit_label}**. Inputs are entered in ₹; exports and charts reflect the selected unit. Monthly spending is escalated annually. Enhanced refill strategy with cascading transfers and minimum thresholds prevents over-draining buckets.")
+st.markdown(f"**Notes:** This simulator displays monetary values in **{unit_label}**. Inputs are entered in ₹; exports and charts reflect the selected unit. Monthly spending is escalated annually. E[...]")
