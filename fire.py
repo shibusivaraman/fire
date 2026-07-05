@@ -128,7 +128,7 @@ with st.sidebar:
     
     if allocation_mode == "B1 by years of expenses":
         st.caption("Bucket1 will be set based on years of yearly expense; B2 and B3 will be scaled proportionally.")
-        b1_years = st.number_input("B1 buffer (years of yearly expense)", value=1.0, min_value=0.0, step=0.5, format="%.1f")
+        b1_years = st.number_input("B1 buffer (years of yearly expense)", value=3.0, min_value=0.0, step=0.5, format="%.1f")
         a2_input = st.number_input("Bucket2 % (of remaining)", value=40.0, step=1.0)
         a3_input = st.number_input("Bucket3 % (of remaining)", value=40.0, step=1.0)
         use_b1_years = True
@@ -139,7 +139,7 @@ with st.sidebar:
         a2_input = st.number_input("Bucket2 % (Income)", value=40.0, step=1.0)
         a3_input = st.number_input("Bucket3 % (Growth)", value=40.0, step=1.0)
         use_b1_years = False
-        b1_years = 1.0
+        b1_years = 3.0
 
     years = st.number_input("Projection years", value=30, min_value=1, max_value=100, step=1)
     withdraw_escalation = st.number_input("Annual withdrawal escalation (%)", value=2.5, step=0.1) / 100.0
