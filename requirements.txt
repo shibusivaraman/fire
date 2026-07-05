@@ -1,0 +1,6 @@
+streamlit>=1.24.0
+pandas>=1.5.3
+numpy>=1.24.0
+matplotlib>=3.6.0
+# Optional: nicer PDF layout (only if you need reportlab features)
+reportlab>=3.6.12
