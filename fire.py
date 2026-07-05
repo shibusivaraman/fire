@@ -30,7 +30,7 @@ st.title("Retirement Simulator — 3-Bucket Refill Strategy")
 # -------------------------
 # Top summary for users
 # -------------------------
-with st.expander("About this Retirement Simulator", expanded=True):
+with st.expander("About this Retirement Simulator", expanded=False):
     st.markdown(
         """
 **App summary**
