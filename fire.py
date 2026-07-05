@@ -104,16 +104,23 @@ with st.sidebar:
 
     inflation = st.number_input("Inflation (%)", value=6.0, step=0.1) / 100.0
 
-    st.markdown("**Expected annual returns (%) and Tax**")
+    st.markdown("**Expected annual returns (%) and Tax (per bucket)**")
     # Defaults: B1=6%, B2=8%, B3=12%
     r1_input = st.number_input("Bucket1 (Liquid) return (%)", value=6.0, step=0.1)
     r2_input = st.number_input("Bucket2 (Income) return (%)", value=8.0, step=0.1)
     r3_input = st.number_input("Bucket3 (Growth) return (%)", value=12.0, step=0.1)
-    tax_rate = st.number_input("Tax rate on returns (%)", value=10.0, step=0.1) / 100.0
+    st.markdown("_Tax rate on returns — specify per bucket_")
+    tax1_input = st.number_input("Bucket1 tax rate on returns (%)", value=10.0, step=0.1)
+    tax2_input = st.number_input("Bucket2 tax rate on returns (%)", value=10.0, step=0.1)
+    tax3_input = st.number_input("Bucket3 tax rate on returns (%)", value=10.0, step=0.1)
+
     # convert to decimals for internal use
     r1 = r1_input / 100.0
     r2 = r2_input / 100.0
     r3 = r3_input / 100.0
+    tax1 = tax1_input / 100.0
+    tax2 = tax2_input / 100.0
+    tax3 = tax3_input / 100.0
 
     st.markdown("**Initial allocations (%)**")
     # Read user inputs for allocations; these may be adjusted if use_b1_years is True
@@ -132,6 +139,7 @@ with st.sidebar:
 # -------------------------
 # Helper utilities
 # -------------------------
+
 def roundv(x):
     try:
         return float(np.round(x, 2))
@@ -193,10 +201,10 @@ def simulate():
     # annual spend derived from monthly input
     annual_spend = monthly_spend * 12.0
 
-    # Effective returns after tax (simple model: apply tax_rate to returns)
-    r1_eff = r1 * (1.0 - tax_rate)
-    r2_eff = r2 * (1.0 - tax_rate)
-    r3_eff = r3 * (1.0 - tax_rate)
+    # Effective returns after tax (apply bucket-level tax rates)
+    r1_eff = r1 * (1.0 - tax1)
+    r2_eff = r2 * (1.0 - tax2)
+    r3_eff = r3 * (1.0 - tax3)
 
     for year in range(0, int(years) + 1):
         age = current_age + year
@@ -352,13 +360,19 @@ df_display = df.copy()
 # numeric columns to scale: all numeric except Year and Age
 num_cols = df_display.select_dtypes(include=[np.number]).columns.tolist()
 num_cols_to_scale = [c for c in num_cols if c not in ("Year", "Age")]
+# scale numeric columns
 df_display[num_cols_to_scale] = df_display[num_cols_to_scale] / unit_factor
 df_display[num_cols_to_scale] = df_display[num_cols_to_scale].round(2)
+
+# Rename Bucket columns to B1/B2/B3 for tables/exports
+rename_map = {"Bucket1": "B1", "Bucket2": "B2", "Bucket3": "B3"}
+df_display = df_display.rename(columns=rename_map)
 
 # Also prepare a scaled DataFrame for CSV export (so CSV matches displayed units)
 df_export = df.copy()
 df_export[num_cols_to_scale] = df_export[num_cols_to_scale] / unit_factor
 df_export[num_cols_to_scale] = df_export[num_cols_to_scale].round(2)
+df_export = df_export.rename(columns=rename_map)
 
 # -------------------------
 # Display outputs (Total portfolio moved to top, Age on x-axis)
