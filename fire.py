@@ -78,7 +78,7 @@ st.markdown("---")
 # Sidebar or main: Inputs + Unit selector (radio)
 # -------------------------
 # Choose container based on mobile toggle
-inputs_container = st if use_mobile_layout else st.sidebar
+inputs_container = st.container() if use_mobile_layout else st.sidebar
 
 with inputs_container:
     st.header("Inputs")
@@ -655,4 +655,4 @@ st.download_button(
     mime="application/pdf"
 )
 
-st.markdown(f"**Notes:** This simulator displays monetary values in **{unit_label}**. Inputs are entered in ₹; exports and charts reflect the selected unit. Monthly spending is escalated annually. E[...]")
+st.markdown(f"**Notes:** This simulator displays monetary values in **{unit_label}**. Inputs are entered in ₹; exports and charts reflect the selected unit. Monthly spending is escalated annual[...]")
