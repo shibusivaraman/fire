@@ -295,6 +295,57 @@ def simulate():
 df, refill_df = simulate()
 
 # -------------------------
+# Summary metrics / KPIs (deterministic run)
+# -------------------------
+# Compute deterministic KPIs: years until depletion, final portfolio, peak year, max drawdown
+total_series = df["Total"].astype(float)
+ages = df["Age"].astype(int)
+
+# Years until depletion: first year where total <= 0 (consider only years after withdrawals may start)
+depletion_rows = df[df["Total"] <= 0]
+if not depletion_rows.empty:
+    first_depletion_row = depletion_rows.iloc[0]
+    depletion_age = int(first_depletion_row["Age"])
+    depletion_years_from_now = int(first_depletion_row["Year"])
+    depletion_text = f"Age {depletion_age} (in {depletion_years_from_now} yr(s))"
+else:
+    depletion_age = None
+    depletion_text = "No depletion within horizon"
+
+# Final portfolio at horizon
+final_total = float(total_series.iloc[-1])
+final_total_scaled = roundv(final_total / unit_factor)
+
+# Peak portfolio and peak age
+peak_idx = int(total_series.idxmax())
+peak_age = int(ages.iloc[peak_idx])
+peak_value = float(total_series.iloc[peak_idx])
+peak_value_scaled = roundv(peak_value / unit_factor)
+
+# Max drawdown computation
+running_max = total_series.cummax()
+# avoid division by zero
+with np.errstate(divide='ignore', invalid='ignore'):
+    drawdowns = (running_max - total_series) / running_max.replace(0, np.nan)
+max_drawdown = float(drawdowns.max()) if not drawdowns.empty else 0.0
+max_drawdown_pct = roundv(max_drawdown * 100.0)
+
+# Success rate: N/A for deterministic single-run (placeholder for Monte Carlo)
+success_rate_text = "N/A (deterministic run)"
+
+# Display KPI row above charts
+st.subheader("Summary Metrics")
+col1, col2, col3, col4, col5 = st.columns(5)
+col1.metric("Years until depletion", depletion_text)
+col2.metric(f"Final portfolio ({unit_label})", f"{final_total_scaled:,.2f}")
+col3.metric("Peak age", f"{peak_age}")
+col4.metric(f"Peak portfolio ({unit_label})", f"{peak_value_scaled:,.2f}")
+col5.metric("Max drawdown (%)", f"{max_drawdown_pct:.2f}%")
+
+# Also show success rate as info
+st.caption(f"Success rate (Monte Carlo): {success_rate_text}")
+
+# -------------------------
 # Prepare display-safe DataFrame and scaled DataFrame (for display/export)
 # -------------------------
 df_display = df.copy()
@@ -323,9 +374,9 @@ st.dataframe(df_display, height=420)
 
 st.subheader("Bucket Composition Over Time")
 # use Age as x-axis and scale
-chart_df = df.set_index("Age")[["Bucket1", "Bucket2", "Bucket3"]] / unit_factor
+chart_df = df.set_index("Age")[['Bucket1', 'Bucket2', 'Bucket3']] / unit_factor
 fig, ax = plt.subplots(figsize=(9, 4))
-ax.stackplot(chart_df.index, chart_df["Bucket1"], chart_df["Bucket2"], chart_df["Bucket3"],
+ax.stackplot(chart_df.index, chart_df['Bucket1'], chart_df['Bucket2'], chart_df['Bucket3'],
              labels=["Bucket1 Liquid", "Bucket2 Income", "Bucket3 Growth"],
              colors=["#8dd3c7", "#ffffb3", "#bebada"])
 ax.legend(loc="upper left")
@@ -395,8 +446,8 @@ def create_pdf_bytes():
         # stacked area (Age on x-axis, scaled)
         fig1 = plt.figure(figsize=(8, 4))
         ax = fig1.add_subplot(111)
-        chart_df_pdf = df.set_index("Age")[["Bucket1", "Bucket2", "Bucket3"]] / unit_factor
-        ax.stackplot(chart_df_pdf.index, chart_df_pdf["Bucket1"], chart_df_pdf["Bucket2"], chart_df_pdf["Bucket3"],
+        chart_df_pdf = df.set_index("Age")[['Bucket1', 'Bucket2', 'Bucket3']] / unit_factor
+        ax.stackplot(chart_df_pdf.index, chart_df_pdf['Bucket1'], chart_df_pdf['Bucket2'], chart_df_pdf['Bucket3'],
                      labels=["Bucket1", "Bucket2", "Bucket3"], colors=["#8dd3c7", "#ffffb3", "#bebada"])
         ax.legend(loc="upper left")
         ax.set_title("Bucket composition")
@@ -438,4 +489,4 @@ st.download_button(
     mime="application/pdf"
 )
 
-st.markdown(f"**Notes:** This simulator displays monetary values in **{unit_label}**. Inputs are entered in ₹; exports and charts reflect the selected unit. Monthly spending is escalated annually by the withdrawal escalation rate. Returns in the model are reduced by the tax rate you entered (simple post-tax approximation).")
+st.markdown(f"**Notes:** This simulator displays monetary values in **{unit_label}**. Inputs are entered in ₹; exports and charts reflect the selected unit. Monthly spending is escalated annual[...]")
