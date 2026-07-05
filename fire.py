@@ -1,11 +1,11 @@
 """
 retirement_simulator_with_rupee_radio.py
 
-Retirement Simulator — 3-Bucket Refill Strategy
+Retirement Simulator — 3-Bucket Refill Strategy (Enhanced)
 - Single-file Streamlit app
 - Features: Age, refill visualization, CSV/PDF export, unit selector (Rupee symbol), Tax Rate, B1 default by Years of Expense
 - UI change: Unit selector is now a radio button; display uses the Rupee symbol (₹)
-- Removed: rebalancing, crash scenarios, and internal tests
+- Enhanced Refill: Cascading refill strategy with B1←B2←B3 and minimum thresholds
 - Inputs: Monthly spending (instead of annual)
 - Defaults:
     - Current age and withdrawal start age = 50
@@ -43,15 +43,21 @@ This lightweight simulator models a **3‑Bucket Retirement strategy** to help y
 **What this app does**
 - Projects yearly balances for each bucket and the total portfolio.
 - Models annual returns and withdrawal escalation.
-- Implements a **refill strategy** that tops up Bucket 1 from Bucket 2 or 3 when needed.
+- Implements an **enhanced cascading refill strategy** that refills B1 from B2, and B2 from B3 with safety thresholds.
 - Visualizes bucket composition, refill transfers, and the total portfolio using **Age** on the x-axis.
 - Lets you **download** the projection as CSV or a simple PDF report.
+
+**Refill Strategy (Enhanced)**
+- **B1 refilled from B2** when B1 < target AND B2 has excess above its target
+- **B2 refilled from B3** when B2 < target AND B3 remains above minimum threshold (preserves growth)
+- **B1 refilled from B3** only when B2 cannot provide enough AND B3 is healthy
+- Safety thresholds prevent over-draining any bucket
 
 **Quick tips**
 - Inputs for spending are **monthly** (enter monthly spending).
 - Use the **B1 by years of expenses** option to set Bucket 1 initial amount as Yearly Expense × Years.
-- Set **target months** for Bucket 1 to control how much liquid buffer you want.
-- Use **refill priority** to choose whether to draw from income or growth assets first.
+- Set **target months** for each bucket to control liquidity and income buffers.
+- Adjust **refill thresholds** to control how much of each bucket is reserved (e.g., keep 40% in growth).
 - Adjust returns, tax rate, and withdrawal escalation to test different scenarios.
 
 Share this summary with others by copying the text above or by exporting the CSV/PDF report.
@@ -144,10 +150,16 @@ with st.sidebar:
     years = st.number_input("Projection years", value=30, min_value=1, max_value=100, step=1)
     withdraw_escalation = st.number_input("Annual withdrawal escalation (%)", value=2.5, step=0.1) / 100.0
 
-    st.markdown("**Refill strategy**")
-    refill_months = st.number_input("Bucket1 target months of spending", value=12, min_value=1)
-    refill_priority = st.selectbox("Refill priority", ["Bucket 2 then 3", "Bucket 3 then 2"])
+    st.markdown("**Refill Strategy (Enhanced Cascading)**")
+    st.caption("Cascading: B1 ← B2 ← B3 with minimum thresholds to protect long-term growth")
+    refill_months_b1 = st.number_input("Bucket1 target months of spending", value=12, min_value=1)
+    refill_months_b2 = st.number_input("Bucket2 target months of spending", value=12, min_value=1)
     refill_pct = st.number_input("Refill amount to target (%)", value=100.0, min_value=0.0, max_value=200.0) / 100.0
+    
+    st.markdown("**Refill Thresholds (% of total portfolio)**")
+    st.caption("Minimum % to keep in each bucket to protect portfolio structure")
+    b2_min_pct = st.number_input("Bucket2 minimum (% of portfolio)", value=30.0, min_value=5.0, max_value=50.0, step=1.0) / 100.0
+    b3_min_pct = st.number_input("Bucket3 minimum (% of portfolio)", value=40.0, min_value=20.0, max_value=70.0, step=1.0) / 100.0
 
 # -------------------------
 # Helper utilities
@@ -198,7 +210,97 @@ a2 = a2_pct / total_alloc_pct
 a3 = a3_pct / total_alloc_pct
 
 # -------------------------
-# Simulation function (no crash, no rebalancing)
+# Enhanced Refill Strategy Function
+# -------------------------
+def improved_refill_strategy(b1, b2, b3, target_b1, target_b2, refill_pct, year, total_portfolio, b2_min_pct, b3_min_pct):
+    """
+    Enhanced cascading refill strategy with conditions:
+    1. B1 refilled from B2 (if B2 > target_b2 and B2_min threshold)
+    2. B2 refilled from B3 (if B3 is healthy, above minimum)
+    3. B1 refilled from B3 (only if B2 insufficient and B3 has excess)
+    
+    Args:
+        b1, b2, b3: Current bucket balances
+        target_b1, target_b2: Target balances for refill
+        refill_pct: Percentage to refill toward target (0-1)
+        year: Current year
+        total_portfolio: Total portfolio value
+        b2_min_pct: Minimum % of portfolio to keep in B2
+        b3_min_pct: Minimum % of portfolio to keep in B3
+    
+    Returns:
+        (b1, b2, b3, refill_records)
+    """
+    
+    refill_records = []
+    
+    # Calculate minimum thresholds
+    b2_min_threshold = total_portfolio * b2_min_pct
+    b3_min_threshold = total_portfolio * b3_min_pct
+    
+    # TIER 1: Refill B1 from B2 (preferred, since B2 is for income/near-term)
+    if b1 < target_b1:
+        needed_b1 = (target_b1 - b1) * refill_pct
+        
+        # Condition: B2 must have excess above its own target AND minimum threshold
+        b2_usable = max(0, b2 - max(target_b2, b2_min_threshold))
+        
+        take_from_b2 = min(b2_usable, needed_b1)
+        
+        if take_from_b2 > 0:
+            b2 -= take_from_b2
+            b1 += take_from_b2
+            refill_records.append({
+                "Year": year,
+                "Source": "Bucket2",
+                "Destination": "Bucket1",
+                "Amount": roundv(take_from_b2),
+                "Reason": "B1→B2 cascade (B2 excess)"
+            })
+            needed_b1 -= take_from_b2
+        
+        # TIER 2: Refill B1 from B3 (only if B2 insufficient)
+        if needed_b1 > 0:
+            # Condition: B3 must stay above minimum threshold (growth protection)
+            b3_usable = max(0, b3 - b3_min_threshold)
+            
+            take_from_b3 = min(b3_usable, needed_b1)
+            
+            if take_from_b3 > 0:
+                b3 -= take_from_b3
+                b1 += take_from_b3
+                refill_records.append({
+                    "Year": year,
+                    "Source": "Bucket3",
+                    "Destination": "Bucket1",
+                    "Amount": roundv(take_from_b3),
+                    "Reason": "B1←B3 cascade (B2 insufficient)"
+                })
+    
+    # TIER 3: Refill B2 from B3 (maintain income bucket health)
+    if b2 < target_b2:
+        needed_b2 = (target_b2 - b2) * refill_pct
+        
+        # Condition: B3 must remain above minimum threshold
+        b3_usable = max(0, b3 - b3_min_threshold)
+        
+        take_from_b3 = min(b3_usable, needed_b2)
+        
+        if take_from_b3 > 0:
+            b3 -= take_from_b3
+            b2 += take_from_b3
+            refill_records.append({
+                "Year": year,
+                "Source": "Bucket3",
+                "Destination": "Bucket2",
+                "Amount": roundv(take_from_b3),
+                "Reason": "B2←B3 cascade (B2 below target)"
+            })
+    
+    return b1, b2, b3, refill_records
+
+# -------------------------
+# Simulation function
 # -------------------------
 def simulate():
     # initialize buckets (inputs are in Rs)
@@ -206,7 +308,8 @@ def simulate():
     b2 = current_total * a2
     b3 = current_total * a3
     monthly_spend = monthly_spend0
-    target_b1 = monthly_spend * refill_months
+    target_b1 = monthly_spend * refill_months_b1
+    target_b2 = monthly_spend * refill_months_b2
 
     rows = []
     refill_records = []
@@ -234,10 +337,7 @@ def simulate():
             "Withdrawn B1": 0.0,
             "Withdrawn B2": 0.0,
             "Withdrawn B3": 0.0,
-            "Refill Inflow B1": 0.0,
-            "Refill Outflow B2": 0.0,
-            "Refill Outflow B3": 0.0,
-            "Notes": ""
+            "Refill Reason": ""
         })
 
         if year == years:
@@ -262,54 +362,40 @@ def simulate():
         to_withdraw -= w1
         rows[-1]["Withdrawn B1"] = roundv(w1)
 
-        # If B1 below target, refill before taking from other buckets
-        if b1 < target_b1:
-            needed = target_b1 - b1
-            needed_to_take = needed * refill_pct
-            sources = [("b2", b2), ("b3", b3)] if refill_priority.startswith("Bucket 2") else [("b3", b3), ("b2", b2)]
-            for name, val in sources:
-                if needed_to_take <= 0:
-                    break
-                take = min(val, needed_to_take)
-                if take <= 0:
-                    continue
-                if name == "b2":
-                    b2 -= take
-                    rows[-1]["Refill Outflow B2"] += roundv(take)
-                    refill_records.append({"Year": year, "Source": "Bucket2", "Amount": roundv(take)})
-                else:
-                    b3 -= take
-                    rows[-1]["Refill Outflow B3"] += roundv(take)
-                    refill_records.append({"Year": year, "Source": "Bucket3", "Amount": roundv(take)})
-                b1 += take
-                rows[-1]["Refill Inflow B1"] += roundv(take)
-                needed_to_take -= take
+        # Enhanced cascading refill strategy
+        b1, b2, b3, tier_refills = improved_refill_strategy(
+            b1, b2, b3, target_b1, target_b2, refill_pct, year, 
+            b1 + b2 + b3, b2_min_pct, b3_min_pct
+        )
+        
+        # Log refill reasons
+        if tier_refills:
+            reasons = [f"{r['Destination'].split('Bucket')[1]}←{r['Source'].split('Bucket')[1]}" for r in tier_refills]
+            rows[-1]["Refill Reason"] = "; ".join(reasons)
+            refill_records.extend(tier_refills)
 
-        # If still need to withdraw, take from B2 then B3 per priority
+        # If still need to withdraw, take from B2 then B3
         if to_withdraw > 0:
-            sources = [("b2", b2), ("b3", b3)] if refill_priority.startswith("Bucket 2") else [("b3", b3), ("b2", b2)]
-            for name, val in sources:
-                if to_withdraw <= 0:
-                    break
-                if name == "b2":
-                    take = min(b2, to_withdraw)
-                    b2 -= take
-                    to_withdraw -= take
-                    rows[-1]["Withdrawn B2"] = roundv(rows[-1]["Withdrawn B2"] + take)
-                else:
-                    take = min(b3, to_withdraw)
-                    b3 -= take
-                    to_withdraw -= take
-                    rows[-1]["Withdrawn B3"] = roundv(rows[-1]["Withdrawn B3"] + take)
+            # Withdraw from B2 first
+            take = min(b2, to_withdraw)
+            b2 -= take
+            to_withdraw -= take
+            rows[-1]["Withdrawn B2"] = roundv(rows[-1]["Withdrawn B2"] + take)
+            
+            # Then from B3
+            if to_withdraw > 0:
+                take = min(b3, to_withdraw)
+                b3 -= take
+                to_withdraw -= take
+                rows[-1]["Withdrawn B3"] = roundv(rows[-1]["Withdrawn B3"] + take)
 
-        # If still short, allow negative B1 to show shortfall
+        # If still short, show shortfall
         if to_withdraw > 0:
             b1 -= to_withdraw
             rows[-1]["Withdrawn B1"] = roundv(rows[-1]["Withdrawn B1"] + to_withdraw)
-            to_withdraw = 0.0
 
     df = pd.DataFrame(rows)
-    refill_df = pd.DataFrame(refill_records) if refill_records else pd.DataFrame(columns=["Year", "Source", "Amount"])
+    refill_df = pd.DataFrame(refill_records) if refill_records else pd.DataFrame(columns=["Year", "Source", "Destination", "Amount", "Reason"])
     return df, refill_df
 
 # Run simulation
@@ -401,9 +487,9 @@ st.dataframe(df_display, height=420)
 
 st.subheader("Bucket Composition Over Time")
 # use Age as x-axis and scale
-chart_df = df.set_index("Age")[['Bucket1', 'Bucket2', 'Bucket3']] / unit_factor
+chart_df = df.set_index("Age")[['B1', 'B2', 'B3']] / unit_factor
 fig, ax = plt.subplots(figsize=(9, 4))
-ax.stackplot(chart_df.index, chart_df['Bucket1'], chart_df['Bucket2'], chart_df['Bucket3'],
+ax.stackplot(chart_df.index, chart_df['B1'], chart_df['B2'], chart_df['B3'],
              labels=["Bucket1 Liquid", "Bucket2 Income", "Bucket3 Growth"],
              colors=["#8dd3c7", "#ffffb3", "#bebada"])
 ax.legend(loc="upper left")
@@ -416,34 +502,55 @@ st.pyplot(fig)
 # -------------------------
 st.subheader("Refill Transfers by Source")
 if not refill_df.empty:
-    # Pivot to show B2 and B3 amounts separately by year
+    # Pivot to show B2 and B3 amounts separately by year and destination
     refill_pivot = refill_df.pivot_table(
-        index="Year", columns="Source", values="Amount", aggfunc="sum"
+        index="Year", columns=["Source", "Destination"], values="Amount", aggfunc="sum"
     ).fillna(0)
+    
+    # Flatten multi-level columns for easier plotting
+    refill_pivot.columns = [f"{dest} from {src}" for src, dest in refill_pivot.columns]
     
     # Scale to unit and convert Year to Age
     refill_pivot = refill_pivot / unit_factor
     refill_pivot.index = refill_pivot.index + current_age  # Convert to Age
     
-    fig, ax = plt.subplots(figsize=(10, 4))
-    refill_pivot.plot(kind="bar", stacked=True, ax=ax, 
-                      color={"Bucket2": "#ffffb3", "Bucket3": "#bebada"})
-    ax.set_title(f"Refill Transfers by Source (in {unit_label})")
+    fig, ax = plt.subplots(figsize=(11, 4))
+    refill_pivot.plot(kind="bar", stacked=True, ax=ax,
+                      color={"Bucket1 from Bucket2": "#c2e8d4", 
+                             "Bucket1 from Bucket3": "#bebada",
+                             "Bucket2 from Bucket3": "#ffffb3"})
+    ax.set_title(f"Refill Transfers by Source & Destination (in {unit_label})")
     ax.set_xlabel("Age")
     ax.set_ylabel(f"Amount ({unit_label})")
-    ax.legend(title="Refill Source", loc="upper right")
+    ax.legend(title="Refill Flow", loc="upper right", fontsize=9)
     plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
     st.pyplot(fig)
     
-    # Detailed refill table
-    st.markdown("**Refill Details (Year-by-Year)**")
+    # Detailed refill table with reasons
+    st.markdown("**Refill Details (Year-by-Year with Reasons)**")
     refill_display = refill_df.copy()
     refill_display["Age"] = refill_display["Year"] + current_age
     refill_display["Amount"] = (refill_display["Amount"] / unit_factor).round(2)
-    st.dataframe(refill_display[["Year", "Age", "Source", "Amount"]].rename(columns={"Amount": f"Amount ({unit_label})"}), height=200)
+    refill_display = refill_display[["Year", "Age", "Destination", "Source", "Amount", "Reason"]]
+    refill_display = refill_display.rename(columns={
+        "Amount": f"Amount ({unit_label})",
+        "Destination": "Refilled To",
+        "Source": "Refilled From"
+    })
+    st.dataframe(refill_display, height=250)
+    
+    # Summary stats
+    st.markdown("**Refill Summary by Type**")
+    summary = refill_df.copy()
+    summary["Flow"] = summary["Destination"] + " ← " + summary["Source"]
+    summary_stats = summary.groupby("Flow")["Amount"].agg(["sum", "count", "mean"]).round(2)
+    summary_stats.columns = [f"Total ({unit_label})", "# of Transfers", f"Avg per Transfer ({unit_label})"]
+    summary_stats["Total ({})".format(unit_label)] = (summary_stats["Total ({})".format(unit_label)] / unit_factor).round(2)
+    summary_stats["Avg per Transfer ({})".format(unit_label)] = (summary_stats["Avg per Transfer ({})".format(unit_label)] / unit_factor).round(2)
+    st.dataframe(summary_stats)
 else:
-    st.info("No refill transfers recorded — Bucket 1 maintained its target balance without needing refills.")
+    st.info("No refill transfers recorded — Buckets maintained their targets without needing refills.")
 
 # -------------------------
 # Export: CSV and PDF (charts use Age and scaled units)
@@ -476,11 +583,11 @@ def create_pdf_bytes():
         # stacked area (Age on x-axis, scaled)
         fig1 = plt.figure(figsize=(8, 4))
         ax = fig1.add_subplot(111)
-        chart_df_pdf = df.set_index("Age")[['Bucket1', 'Bucket2', 'Bucket3']] / unit_factor
-        ax.stackplot(chart_df_pdf.index, chart_df_pdf['Bucket1'], chart_df_pdf['Bucket2'], chart_df_pdf['Bucket3'],
+        chart_df_pdf = df.set_index("Age")[['B1', 'B2', 'B3']] / unit_factor
+        ax.stackplot(chart_df_pdf.index, chart_df_pdf['B1'], chart_df_pdf['B2'], chart_df_pdf['B3'],
                      labels=["Bucket1", "Bucket2", "Bucket3"], colors=["#8dd3c7", "#ffffb3", "#bebada"])
         ax.legend(loc="upper left")
-        ax.set_title("Bucket composition")
+        ax.set_title("Bucket Composition Over Time")
         ax.set_xlabel("Age")
         ax.set_ylabel(f"Amount ({unit_label})")
         pdf.savefig(fig1)
@@ -489,18 +596,21 @@ def create_pdf_bytes():
         # refill stacked bar (Age on x-axis, scaled)
         if not refill_df.empty:
             refill_pivot_pdf = refill_df.pivot_table(
-                index="Year", columns="Source", values="Amount", aggfunc="sum"
+                index="Year", columns=["Source", "Destination"], values="Amount", aggfunc="sum"
             ).fillna(0)
+            refill_pivot_pdf.columns = [f"{dest} from {src}" for src, dest in refill_pivot_pdf.columns]
             refill_pivot_pdf = refill_pivot_pdf / unit_factor
             refill_pivot_pdf.index = refill_pivot_pdf.index + current_age
             
-            fig2 = plt.figure(figsize=(10, 3))
+            fig2 = plt.figure(figsize=(10, 4))
             refill_pivot_pdf.plot(kind="bar", stacked=True, ax=fig2.gca(),
-                                  color={"Bucket2": "#ffffb3", "Bucket3": "#bebada"})
-            fig2.gca().set_title(f"Refill Transfers by Source ({unit_label})")
+                                  color={"Bucket1 from Bucket2": "#c2e8d4",
+                                         "Bucket1 from Bucket3": "#bebada",
+                                         "Bucket2 from Bucket3": "#ffffb3"})
+            fig2.gca().set_title(f"Refill Transfers by Source & Destination ({unit_label})")
             fig2.gca().set_xlabel("Age")
             fig2.gca().set_ylabel(f"Amount ({unit_label})")
-            fig2.gca().legend(title="Refill Source", loc="upper right")
+            fig2.gca().legend(title="Refill Flow", fontsize=8, loc="upper right")
             plt.xticks(rotation=45, ha='right')
             plt.tight_layout()
             pdf.savefig(fig2)
@@ -512,7 +622,7 @@ def create_pdf_bytes():
         sample = df_export.head(12).round(2)
         tbl = plt.table(cellText=sample.values, colLabels=sample.columns, loc='center', cellLoc='center')
         tbl.auto_set_font_size(False)
-        tbl.set_fontsize(8)
+        tbl.set_fontsize(7)
         pdf.savefig(fig3)
         plt.close(fig3)
 
@@ -527,4 +637,4 @@ st.download_button(
     mime="application/pdf"
 )
 
-st.markdown(f"**Notes:** This simulator displays monetary values in **{unit_label}**. Inputs are entered in ₹; exports and charts reflect the selected unit. Monthly spending is escalated annually.")
+st.markdown(f"**Notes:** This simulator displays monetary values in **{unit_label}**. Inputs are entered in ₹; exports and charts reflect the selected unit. Monthly spending is escalated annually. Enhanced refill strategy with cascading transfers and minimum thresholds prevents over-draining buckets.")
