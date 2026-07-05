@@ -1,14 +1,15 @@
 """
-fire_three_bucket_patched.py
+fire_three_bucket_with_summary_patched_age.py
 
-FIRE 3-Bucket Simulator (patched)
+Retirement Simulator — 3-Bucket Refill Strategy (Patched)
 - Single-file Streamlit app
-- Features: Age, crash+recovery, refill visualization, rebalancing rules, CSV/PDF export, internal tests
-- Fixes: avoids applying numeric format to string columns (resolves ValueError: Unknown format code 'f' for object of type 'str')
+- Features: Age, refill visualization, CSV/PDF export, internal tests
+- Removed: rebalancing and crash scenarios (per prior request)
+- Change: All graphs use Age on the x-axis instead of Year
 - Dependencies: streamlit, pandas, numpy, matplotlib
 - Run:
     pip install streamlit pandas numpy matplotlib
-    streamlit run fire_three_bucket_patched.py
+    streamlit run fire_three_bucket_with_summary_patched_age.py
 """
 import streamlit as st
 import numpy as np
@@ -17,8 +18,40 @@ import matplotlib.pyplot as plt
 from io import BytesIO
 from datetime import datetime
 
-st.set_page_config(page_title="FIRE 3-Bucket Simulator (Patched)", layout="wide")
-st.title("FIRE 3-Bucket Strategy Simulator — Patched")
+st.set_page_config(page_title="Retirement Simulator — 3-Bucket Refill Strategy", layout="wide")
+st.title("Retirement Simulator — 3-Bucket Refill Strategy")
+
+# -------------------------
+# Top summary for users
+# -------------------------
+with st.expander("About this Retirement Simulator", expanded=True):
+    st.markdown(
+        """
+**App summary**
+
+This lightweight simulator models a **3‑Bucket Retirement strategy** to help you manage a retirement corpus:
+- **Bucket 1 — Liquid**: cash and short-term instruments for near-term spending.
+- **Bucket 2 — Income**: bonds, annuities, or income-generating assets.
+- **Bucket 3 — Growth**: equities and long-term growth assets.
+
+**What this app does**
+- Projects yearly balances for each bucket and the total portfolio.
+- Models annual returns and withdrawal escalation.
+- Implements a **refill strategy** that tops up Bucket 1 from Bucket 2 or 3 when needed.
+- Visualizes bucket composition, refill transfers, and the total portfolio using **Age** on the x-axis.
+- Lets you **download** the projection as CSV or a simple PDF report.
+
+**Quick tips**
+- Set **target months** for Bucket 1 to control how much liquid buffer you want.
+- Use **refill priority** to choose whether to draw from income or growth assets first.
+- Adjust returns and withdrawal escalation to test different market and spending scenarios.
+- Use the **Run internal tests** button in the sidebar to validate the simulation logic.
+
+Share this summary with others by copying the text above or by exporting the CSV/PDF report.
+"""
+    )
+
+st.markdown("---")
 
 # -------------------------
 # Sidebar: Inputs + Tests
@@ -56,22 +89,10 @@ with st.sidebar:
     years = st.number_input("Projection years", value=30, min_value=1, max_value=100, step=1)
     withdraw_escalation = st.number_input("Annual withdrawal escalation (%)", value=2.5, step=0.1) / 100.0
 
-    st.markdown("**Crash scenario**")
-    enable_crash = st.checkbox("Enable crash", value=True)
-    crash_year = st.number_input("Crash year (relative to start, 0=start)", value=2, min_value=0, max_value=years)
-    crash_drop = st.number_input("Crash drop (%)", value=30.0, step=1.0) / 100.0
-    recovery_years = st.number_input("Recovery years (linear)", value=5, min_value=0, max_value=30)
-
     st.markdown("**Refill strategy**")
     refill_months = st.number_input("Bucket1 target months of spending", value=12, min_value=1)
     refill_priority = st.selectbox("Refill priority", ["Bucket 2 then 3", "Bucket 3 then 2"])
     refill_pct = st.number_input("Refill amount to target (%)", value=100.0, min_value=0.0, max_value=200.0) / 100.0
-
-    st.markdown("**Rebalancing**")
-    enable_rebal = st.checkbox("Enable rebalancing", value=True)
-    rebalance_freq = st.number_input("Rebalance every N years", value=5, min_value=1)
-    rebalance_tol = st.number_input("Tolerance (%)", value=10.0, min_value=0.0) / 100.0
-    trans_cost = st.number_input("Transaction cost (%) when rebalancing", value=0.2, step=0.1) / 100.0
 
     st.markdown("---")
     run_tests = st.button("Run internal tests")
@@ -86,7 +107,7 @@ def roundv(x):
         return x
 
 # -------------------------
-# Simulation function
+# Simulation function (no crash, no rebalancing)
 # -------------------------
 def simulate():
     # initialize buckets
@@ -98,10 +119,8 @@ def simulate():
 
     rows = []
     refill_records = []
-    rebal_records = []
 
     annual_spend = annual_spend0
-    orig_b3 = current_total * a3
 
     for year in range(0, int(years) + 1):
         age = current_age + year
@@ -120,32 +139,16 @@ def simulate():
             "Refill Inflow B1": 0.0,
             "Refill Outflow B2": 0.0,
             "Refill Outflow B3": 0.0,
-            "Rebalance Net B1": 0.0,
-            "Rebalance Net B2": 0.0,
-            "Rebalance Net B3": 0.0,
             "Notes": ""
         })
 
         if year == years:
             break
 
-        # Crash at start of crash_year
-        if enable_crash and year == crash_year:
-            drop_amt = b3 * crash_drop
-            b3 -= drop_amt
-            recovery_per_year = (orig_b3 * crash_drop) / max(1, recovery_years)
-            rows[-1]["Notes"] += f"Crash applied: -{roundv(drop_amt)}; "
-        else:
-            recovery_per_year = 0.0
-
         # Apply returns
         b1 *= (1 + r1)
         b2 *= (1 + r2)
         b3 *= (1 + r3)
-
-        # Add recovery if in window
-        if enable_crash and recovery_years > 0 and crash_year < year <= crash_year + recovery_years:
-            b3 += recovery_per_year
 
         # Escalate spending (apply withdrawal escalation)
         if year > 0:
@@ -206,140 +209,110 @@ def simulate():
             rows[-1]["Withdrawn B1"] = roundv(rows[-1]["Withdrawn B1"] + to_withdraw)
             to_withdraw = 0.0
 
-        # Rebalancing at scheduled years
-        if enable_rebal and (year % rebalance_freq == 0) and year > 0:
-            total_now = b1 + b2 + b3
-            if total_now <= 0:
-                rows[-1]["Notes"] += "Total depleted; no rebalance. "
-            else:
-                targ = np.array([a1, a2, a3]) * total_now
-                cur = np.array([b1, b2, b3])
-                with np.errstate(divide='ignore', invalid='ignore'):
-                    dev = np.abs(cur - targ) / np.where(targ != 0, targ, 1.0)
-                if np.any(dev > rebalance_tol):
-                    new_b1, new_b2, new_b3 = targ
-                    moved_amount = np.sum(np.abs(np.array([new_b1, new_b2, new_b3]) - cur)) / 2.0
-                    cost = moved_amount * trans_cost
-                    # apply new balances
-                    b1, b2, b3 = new_b1, new_b2, new_b3
-                    # deduct cost proportionally from buckets
-                    total_after = b1 + b2 + b3
-                    if total_after > 0 and cost > 0:
-                        prop = np.array([b1, b2, b3]) / total_after
-                        b1 -= cost * prop[0]
-                        b2 -= cost * prop[1]
-                        b3 -= cost * prop[2]
-                    rows[-1]["Rebalance Net B1"] = roundv(b1 - cur[0])
-                    rows[-1]["Rebalance Net B2"] = roundv(b2 - cur[1])
-                    rows[-1]["Rebalance Net B3"] = roundv(b3 - cur[2])
-                    rebal_records.append({
-                        "Year": year,
-                        "From/To": "Rebalanced to target",
-                        "Net B1": roundv(rows[-1]["Rebalance Net B1"]),
-                        "Net B2": roundv(rows[-1]["Rebalance Net B2"]),
-                        "Net B3": roundv(rows[-1]["Rebalance Net B3"]),
-                        "Transaction Cost": roundv(cost)
-                    })
-                    rows[-1]["Notes"] += f"Rebalanced; cost {roundv(cost)}. "
-
     df = pd.DataFrame(rows)
     refill_df = pd.DataFrame(refill_records) if refill_records else pd.DataFrame(columns=["Year", "Source", "Amount"])
-    rebal_df = pd.DataFrame(rebal_records) if rebal_records else pd.DataFrame(columns=["Year", "From/To", "Net B1", "Net B2", "Net B3", "Transaction Cost"])
-    return df, refill_df, rebal_df
+    return df, refill_df
 
 # Run simulation
-df, refill_df, rebal_df = simulate()
+df, refill_df = simulate()
 
 # -------------------------
-# Prepare display-safe DataFrame (patch for formatting error)
+# Prepare display-safe DataFrame
 # -------------------------
 df_display = df.copy()
-# Round numeric columns only to avoid applying numeric format to strings
 num_cols = df_display.select_dtypes(include=[np.number]).columns
 df_display[num_cols] = df_display[num_cols].round(2)
 
 # -------------------------
-# Display outputs
+# Display outputs (Total portfolio moved to top, Age on x-axis)
 # -------------------------
+st.subheader("Total Portfolio")
+# use Age as x-axis
+total_by_age = df.set_index("Age")["Total"]
+st.line_chart(total_by_age)
+
 st.subheader("Projection Table (includes Age)")
 st.dataframe(df_display, height=360)
 
 st.subheader("Bucket Composition Over Time")
-chart_df = df.set_index("Year")[["Bucket1", "Bucket2", "Bucket3"]]
+# use Age as x-axis
+chart_df = df.set_index("Age")[["Bucket1", "Bucket2", "Bucket3"]]
 fig, ax = plt.subplots(figsize=(9, 4))
 ax.stackplot(chart_df.index, chart_df["Bucket1"], chart_df["Bucket2"], chart_df["Bucket3"],
              labels=["Bucket1 Liquid", "Bucket2 Income", "Bucket3 Growth"],
              colors=["#8dd3c7", "#ffffb3", "#bebada"])
 ax.legend(loc="upper left")
 ax.set_ylabel("Amount")
-ax.set_xlabel("Year")
+ax.set_xlabel("Age")
 st.pyplot(fig)
 
-st.subheader("Total Portfolio")
-st.line_chart(df.set_index("Year")["Total"])
-
-# Transfers visualization
+# Transfers visualization (Age on x-axis)
 st.subheader("Transfers Visualization")
-transfer_choice = st.selectbox("Show transfers", ["Refill transfers", "Rebalancing summary"])
-if transfer_choice == "Refill transfers":
-    if not refill_df.empty:
-        agg = refill_df.groupby("Year")["Amount"].sum()
-        fig2, ax2 = plt.subplots(figsize=(8, 3))
-        agg.plot(kind="bar", ax=ax2, color="#66c2a5")
-        ax2.set_ylabel("Refill amount into Bucket1")
-        ax2.set_xlabel("Year")
-        st.pyplot(fig2)
-        st.dataframe(refill_df, height=200)
-        # Sankey-like simple flows (approx)
-        st.markdown("**Approximate flows into Bucket1 (per year)**")
-        fig_flow, axf = plt.subplots(figsize=(8, 3))
-        years_idx = agg.index.astype(str)
-        values = agg.values
-        axf.bar(years_idx, values, color="#66c2a5")
-        for i, v in enumerate(values):
-            axf.annotate(f"{v:,.0f}", xy=(i, v), xytext=(0, 5), textcoords="offset points", ha='center')
-        axf.set_ylabel("Amount")
-        axf.set_xlabel("Year")
-        st.pyplot(fig_flow)
-    else:
-        st.info("No refill transfers recorded.")
+if not refill_df.empty:
+    agg = refill_df.groupby("Year")["Amount"].sum()
+    ages = (agg.index + current_age).astype(int)  # Year -> Age
+    fig2, ax2 = plt.subplots(figsize=(8, 3))
+    ax2.bar(ages.astype(str), agg.values, color="#66c2a5")
+    ax2.set_ylabel("Refill amount into Bucket1")
+    ax2.set_xlabel("Age")
+    st.pyplot(fig2)
+    st.dataframe(refill_df, height=200)
+
+    # Sankey-like simple flows (approx) using Age labels
+    st.markdown("**Approximate flows into Bucket1 (per age)**")
+    fig_flow, axf = plt.subplots(figsize=(8, 3))
+    years_idx = (agg.index + current_age).astype(str)  # show ages
+    values = agg.values
+    axf.bar(years_idx, values, color="#66c2a5")
+    for i, v in enumerate(values):
+        axf.annotate(f"{v:,.0f}", xy=(i, v), xytext=(0, 5), textcoords="offset points", ha='center')
+    axf.set_ylabel("Amount")
+    axf.set_xlabel("Age")
+    st.pyplot(fig_flow)
 else:
-    if not rebal_df.empty:
-        st.dataframe(rebal_df, height=200)
-        fig3, ax3 = plt.subplots(figsize=(6, 2))
-        ax3.bar(rebal_df["Year"].astype(str), rebal_df["Transaction Cost"], color="#fc8d62")
-        ax3.set_ylabel("Transaction Cost")
-        ax3.set_xlabel("Year")
-        st.pyplot(fig3)
-    else:
-        st.info("No rebalancing events recorded.")
+    st.info("No refill transfers recorded.")
 
 # -------------------------
-# Export: CSV and PDF
+# Export: CSV and PDF (charts use Age)
 # -------------------------
 st.subheader("Export")
 csv_bytes = df.to_csv(index=False).encode("utf-8")
-st.download_button("Download projection CSV", data=csv_bytes, file_name=f"fire_projection_{datetime.now().date()}.csv", mime="text/csv")
+st.download_button("Download projection CSV", data=csv_bytes, file_name=f"retirement_projection_{datetime.now().date()}.csv", mime="text/csv")
 
 def create_pdf_bytes():
     pdf_buf = BytesIO()
     from matplotlib.backends.backend_pdf import PdfPages
     with PdfPages(pdf_buf) as pdf:
-        # stacked area
+        # total portfolio line (Age on x-axis)
+        fig0 = plt.figure(figsize=(8, 3))
+        ax0 = fig0.add_subplot(111)
+        ax0.plot(df["Age"], df["Total"], marker="o", color="#377eb8")
+        ax0.set_title("Total Portfolio Over Time")
+        ax0.set_xlabel("Age")
+        ax0.set_ylabel("Total")
+        pdf.savefig(fig0)
+        plt.close(fig0)
+
+        # stacked area (Age on x-axis)
         fig1 = plt.figure(figsize=(8, 4))
         ax = fig1.add_subplot(111)
-        ax.stackplot(chart_df.index, chart_df["Bucket1"], chart_df["Bucket2"], chart_df["Bucket3"],
+        chart_df_pdf = df.set_index("Age")[["Bucket1", "Bucket2", "Bucket3"]]
+        ax.stackplot(chart_df_pdf.index, chart_df_pdf["Bucket1"], chart_df_pdf["Bucket2"], chart_df_pdf["Bucket3"],
                      labels=["Bucket1", "Bucket2", "Bucket3"], colors=["#8dd3c7", "#ffffb3", "#bebada"])
         ax.legend(loc="upper left")
         ax.set_title("Bucket composition")
+        ax.set_xlabel("Age")
         pdf.savefig(fig1)
         plt.close(fig1)
 
-        # refill bar
+        # refill bar (Age on x-axis)
         if not refill_df.empty:
+            agg_pdf = refill_df.groupby("Year")["Amount"].sum()
+            agg_pdf.index = (agg_pdf.index + current_age).astype(int)
             fig2 = plt.figure(figsize=(8, 3))
-            refill_df.groupby("Year")["Amount"].sum().plot(kind="bar", color="#66c2a5")
-            plt.title("Refill transfers by year")
+            agg_pdf.plot(kind="bar", color="#66c2a5")
+            plt.title("Refill transfers by Age")
+            plt.xlabel("Age")
             plt.tight_layout()
             pdf.savefig(fig2)
             plt.close(fig2)
@@ -358,12 +331,12 @@ def create_pdf_bytes():
     return pdf_buf.read()
 
 pdf_bytes = create_pdf_bytes()
-st.download_button("Download PDF report", data=pdf_bytes, file_name=f"fire_report_{datetime.now().date()}.pdf", mime="application/pdf")
+st.download_button("Download PDF report", data=pdf_bytes, file_name=f"retirement_report_{datetime.now().date()}.pdf", mime="application/pdf")
 
-st.markdown("**Notes:** Age is used to determine when withdrawals start. Model uses annual steps and a simple linear crash recovery.")
+st.markdown("**Notes:** This simulator uses Age on the x-axis for charts. Rebalancing and crash scenarios are removed; the model focuses on annual returns, withdrawals, and refill transfers.")
 
 # -------------------------
-# Built-in deterministic tests
+# Built-in deterministic tests (adjusted for removed features)
 # -------------------------
 def run_internal_tests():
     results = []
@@ -375,14 +348,7 @@ def run_internal_tests():
     row0 = df.iloc[0]
     results.append(("Initial total equals current_total", np.isclose(row0["Total"], current_total)))
 
-    # Test 3: crash applied when enabled
-    if enable_crash and crash_year <= years:
-        crash_note_present = any("Crash applied" in str(n) for n in df.loc[df["Year"] == crash_year, "Notes"].astype(str))
-        results.append(("Crash applied at crash_year", bool(crash_note_present)))
-    else:
-        results.append(("Crash disabled or out of range", True))
-
-    # Test 4: refill recorded when initial B1 < target
+    # Test 3: refill recorded when initial B1 < target
     monthly_spend = annual_spend0 / 12.0
     target_b1 = monthly_spend * refill_months
     initial_b1 = current_total * a1
@@ -392,18 +358,11 @@ def run_internal_tests():
     else:
         results.append(("Refill not required initially (B1 >= target)", True))
 
-    # Test 5: rebalancing events recorded when enabled
-    if enable_rebal and rebalance_freq <= years:
-        rebal_events = len(rebal_df) > 0
-        results.append(("Rebalancing events recorded when enabled", bool(rebal_events)))
-    else:
-        results.append(("Rebalancing disabled or out of range", True))
-
-    # Test 6: final total finite
+    # Test 4: final total finite
     final_total = df.iloc[-1]["Total"]
     results.append(("Final total is finite number", np.isfinite(final_total)))
 
-    # Test 7: final total not NaN
+    # Test 5: final total not NaN
     results.append(("Final total not NaN", not pd.isna(final_total)))
 
     return results
@@ -421,4 +380,3 @@ if run_tests:
             st.write(f"✅ {name}")
         else:
             st.write(f"❌ {name}")
-
