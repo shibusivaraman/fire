@@ -255,7 +255,7 @@ def improved_refill_strategy(b1, b2, b3, target_b1, target_b2, refill_pct, year,
                 "Source": "Bucket2",
                 "Destination": "Bucket1",
                 "Amount": roundv(take_from_b2),
-                "Reason": "B1→B2 cascade (B2 excess)"
+                "Reason": "B1←B2 cascade (B2 excess)"
             })
             needed_b1 -= take_from_b2
         
@@ -486,10 +486,10 @@ st.caption(f"Monetary values shown in **{unit_label}**. Inputs are entered in �
 st.dataframe(df_display, height=420)
 
 st.subheader("Bucket Composition Over Time")
-# use Age as x-axis and scale
-chart_df = df.set_index("Age")[['B1', 'B2', 'B3']] / unit_factor
+# use Age as x-axis and scale (use original column names from df)
+chart_df = df.set_index("Age")[['Bucket1', 'Bucket2', 'Bucket3']] / unit_factor
 fig, ax = plt.subplots(figsize=(9, 4))
-ax.stackplot(chart_df.index, chart_df['B1'], chart_df['B2'], chart_df['B3'],
+ax.stackplot(chart_df.index, chart_df['Bucket1'], chart_df['Bucket2'], chart_df['Bucket3'],
              labels=["Bucket1 Liquid", "Bucket2 Income", "Bucket3 Growth"],
              colors=["#8dd3c7", "#ffffb3", "#bebada"])
 ax.legend(loc="upper left")
@@ -583,8 +583,8 @@ def create_pdf_bytes():
         # stacked area (Age on x-axis, scaled)
         fig1 = plt.figure(figsize=(8, 4))
         ax = fig1.add_subplot(111)
-        chart_df_pdf = df.set_index("Age")[['B1', 'B2', 'B3']] / unit_factor
-        ax.stackplot(chart_df_pdf.index, chart_df_pdf['B1'], chart_df_pdf['B2'], chart_df_pdf['B3'],
+        chart_df_pdf = df.set_index("Age")[['Bucket1', 'Bucket2', 'Bucket3']] / unit_factor
+        ax.stackplot(chart_df_pdf.index, chart_df_pdf['Bucket1'], chart_df_pdf['Bucket2'], chart_df_pdf['Bucket3'],
                      labels=["Bucket1", "Bucket2", "Bucket3"], colors=["#8dd3c7", "#ffffb3", "#bebada"])
         ax.legend(loc="upper left")
         ax.set_title("Bucket Composition Over Time")
