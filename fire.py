@@ -49,7 +49,7 @@ This lightweight simulator models a **3‑Bucket Retirement strategy** to help y
 
 **Quick tips**
 - Inputs for spending are **monthly** (enter monthly spending).
-- Use the **B1 default by years** option to set Bucket 1 initial amount as Yearly Expense × Years.
+- Use the **B1 by years of expenses** option to set Bucket 1 initial amount as Yearly Expense × Years.
 - Set **target months** for Bucket 1 to control how much liquid buffer you want.
 - Use **refill priority** to choose whether to draw from income or growth assets first.
 - Adjust returns, tax rate, and withdrawal escalation to test different scenarios.
@@ -94,14 +94,6 @@ with st.sidebar:
     # Monthly spending input (instead of annual)
     monthly_spend0 = st.number_input("Monthly spending (first month) (₹)", value=100_000.0, step=1_000.0, format="%.2f")
 
-    # Option: set B1 default from Years of yearly expense
-    st.markdown("**Bucket1 default option**")
-    use_b1_years = st.checkbox("Set Bucket1 initial amount as Yearly Expense × Years", value=False)
-    b1_years = 1.0
-    if use_b1_years:
-        b1_years = st.number_input("B1 buffer (years of yearly expense)", value=1.0, min_value=0.0, step=0.5, format="%.1f")
-        st.caption("Bucket1 initial amount will be: (Monthly spend × 12) × Years")
-
     inflation = st.number_input("Inflation (%)", value=6.0, step=0.1) / 100.0
 
     st.markdown("**Expected annual returns (%) and Tax (per bucket)**")
@@ -122,11 +114,32 @@ with st.sidebar:
     tax2 = tax2_input / 100.0
     tax3 = tax3_input / 100.0
 
-    st.markdown("**Initial allocations (%)**")
-    # Read user inputs for allocations; these may be adjusted if use_b1_years is True
-    a1_input = st.number_input("Bucket1 % (will be overridden if B1 default option is used)", value=20.0, step=1.0)
-    a2_input = st.number_input("Bucket2 %", value=40.0, step=1.0)
-    a3_input = st.number_input("Bucket3 %", value=40.0, step=1.0)
+    # -------------------------
+    # UNIFIED: Initial allocations & Bucket1 default option
+    # -------------------------
+    st.markdown("**Initial Bucket Allocations**")
+    
+    # Toggle: Use B1 default by years or manual input
+    allocation_mode = st.radio(
+        "Choose allocation method",
+        options=["Manual allocation (%)", "B1 by years of expenses"],
+        index=0
+    )
+    
+    if allocation_mode == "B1 by years of expenses":
+        st.caption("Bucket1 will be set based on years of yearly expense; B2 and B3 will be scaled proportionally.")
+        b1_years = st.number_input("B1 buffer (years of yearly expense)", value=1.0, min_value=0.0, step=0.5, format="%.1f")
+        a2_input = st.number_input("Bucket2 % (of remaining)", value=40.0, step=1.0)
+        a3_input = st.number_input("Bucket3 % (of remaining)", value=40.0, step=1.0)
+        use_b1_years = True
+        a1_input = 0.0  # Will be computed below
+    else:
+        st.caption("Manually specify the % allocation for each bucket.")
+        a1_input = st.number_input("Bucket1 % (Liquid)", value=20.0, step=1.0)
+        a2_input = st.number_input("Bucket2 % (Income)", value=40.0, step=1.0)
+        a3_input = st.number_input("Bucket3 % (Growth)", value=40.0, step=1.0)
+        use_b1_years = False
+        b1_years = 1.0
 
     years = st.number_input("Projection years", value=30, min_value=1, max_value=100, step=1)
     withdraw_escalation = st.number_input("Annual withdrawal escalation (%)", value=2.5, step=0.1) / 100.0
@@ -503,4 +516,4 @@ st.download_button(
     mime="application/pdf"
 )
 
-st.markdown(f"**Notes:** This simulator displays monetary values in **{unit_label}**. Inputs are entered in ₹; exports and charts reflect the selected unit. Monthly spending is escalated annual[...]")
+st.markdown(f"**Notes:** This simulator displays monetary values in **{unit_label}**. Inputs are entered in ₹; exports and charts reflect the selected unit. Monthly spending is escalated annually.")
