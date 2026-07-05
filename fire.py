@@ -1,21 +1,21 @@
 """
-fire_three_bucket_with_units_monthly.py
+retirement_simulator_with_rupee_radio.py
 
-Retirement Simulator — 3-Bucket Refill Strategy with Unit Selector and Monthly Spending
+Retirement Simulator — 3-Bucket Refill Strategy
 - Single-file Streamlit app
-- Features: Age, refill visualization, CSV/PDF export, internal tests
-- Removed: rebalancing and crash scenarios
-- Change: All charts use Age on the x-axis; added Unit selector (Rs, Lakhs, Crores)
+- Features: Age, refill visualization, CSV/PDF export, unit selector (Rupee symbol), Tax Rate, B1 default by Years of Expense
+- UI change: Unit selector is now a radio button; display uses the Rupee symbol (₹)
+- Removed: rebalancing, crash scenarios, and internal tests
 - Inputs: Monthly spending (instead of annual)
-- Defaults updated per user request:
-    - Default current age and withdrawal start age = 50
-    - Default current retirement corpus = 5 Crore (50,000,000 Rs)
-    - Default inflation = 6%
-    - Default expected returns: B1=6%, B2=8%, B3=12%
+- Defaults:
+    - Current age and withdrawal start age = 50
+    - Current retirement corpus = 5 Crore (50,000,000 Rs)
+    - Inflation = 6%
+    - Expected returns: B1=6%, B2=8%, B3=12%
 - Dependencies: streamlit, pandas, numpy, matplotlib
 - Run:
     pip install streamlit pandas numpy matplotlib
-    streamlit run fire_three_bucket_with_units_monthly.py
+    streamlit run retirement_simulator_with_rupee_radio.py
 """
 import streamlit as st
 import numpy as np
@@ -48,11 +48,11 @@ This lightweight simulator models a **3‑Bucket Retirement strategy** to help y
 - Lets you **download** the projection as CSV or a simple PDF report.
 
 **Quick tips**
-- Inputs for spending are now **monthly** (enter monthly spending).
+- Inputs for spending are **monthly** (enter monthly spending).
+- Use the **B1 default by years** option to set Bucket 1 initial amount as Yearly Expense × Years.
 - Set **target months** for Bucket 1 to control how much liquid buffer you want.
 - Use **refill priority** to choose whether to draw from income or growth assets first.
-- Adjust returns and withdrawal escalation to test different market and spending scenarios.
-- Use the **Run internal tests** button in the sidebar to validate the simulation logic.
+- Adjust returns, tax rate, and withdrawal escalation to test different scenarios.
 
 Share this summary with others by copying the text above or by exporting the CSV/PDF report.
 """
@@ -61,17 +61,28 @@ Share this summary with others by copying the text above or by exporting the CSV
 st.markdown("---")
 
 # -------------------------
-# Sidebar: Inputs + Tests + Unit selector
+# Sidebar: Inputs + Unit selector (radio)
 # -------------------------
 with st.sidebar:
     st.header("Inputs")
 
-    # Unit selector
+    # Unit selector as radio buttons with Rupee symbol
     st.markdown("**Display units**")
-    unit_choice = st.selectbox("Choose units for display and export", options=["Rs", "Lakhs", "Crores"], index=1)
-    unit_map = {"Rs": 1.0, "Lakhs": 1e5, "Crores": 1e7}
+    unit_choice = st.radio(
+        "Choose units for display and export",
+        options=["₹ (Rupee)", "Lakhs (₹)", "Crores (₹)"],
+        index=1
+    )
+    # Map radio labels to numeric factors and a short label for display
+    unit_map = {"₹ (Rupee)": 1.0, "Lakhs (₹)": 1e5, "Crores (₹)": 1e7}
     unit_factor = float(unit_map.get(unit_choice, 1.0))
-    unit_label = unit_choice
+    # Short label for axis and captions (use symbol for rupee)
+    if unit_choice.startswith("₹"):
+        unit_label = "₹"
+    elif "Lakhs" in unit_choice:
+        unit_label = "Lakhs (₹)"
+    else:
+        unit_label = "Crores (₹)"
 
     # Age inputs (defaults set to 50)
     current_age = st.number_input("Current age", value=50, min_value=18, max_value=120, step=1)
@@ -79,29 +90,36 @@ with st.sidebar:
 
     # core financial inputs (entered in Rs)
     # Default corpus = 5 Crore = 50,000,000
-    current_total = st.number_input("Current total retirement corpus (Rs)", value=50_000_000.0, step=100_000.0, format="%.2f")
+    current_total = st.number_input("Current total retirement corpus (₹)", value=50_000_000.0, step=100_000.0, format="%.2f")
     # Monthly spending input (instead of annual)
-    monthly_spend0 = st.number_input("Monthly spending (first month) (Rs)", value=100_000.0, step=1_000.0, format="%.2f")
+    monthly_spend0 = st.number_input("Monthly spending (first month) (₹)", value=100_000.0, step=1_000.0, format="%.2f")
+
+    # Option: set B1 default from Years of yearly expense
+    st.markdown("**Bucket1 default option**")
+    use_b1_years = st.checkbox("Set Bucket1 initial amount as Yearly Expense × Years", value=False)
+    b1_years = 1.0
+    if use_b1_years:
+        b1_years = st.number_input("B1 buffer (years of yearly expense)", value=1.0, min_value=0.0, step=0.5, format="%.1f")
+        st.caption("Bucket1 initial amount will be: (Monthly spend × 12) × Years")
+
     inflation = st.number_input("Inflation (%)", value=6.0, step=0.1) / 100.0
 
-    st.markdown("**Expected annual returns (%)**")
+    st.markdown("**Expected annual returns (%) and Tax**")
     # Defaults: B1=6%, B2=8%, B3=12%
-    r1 = st.number_input("Bucket1 (Liquid) return (%)", value=6.0, step=0.1) / 100.0
-    r2 = st.number_input("Bucket2 (Income) return (%)", value=8.0, step=0.1) / 100.0
-    r3 = st.number_input("Bucket3 (Growth) return (%)", value=12.0, step=0.1) / 100.0
+    r1_input = st.number_input("Bucket1 (Liquid) return (%)", value=6.0, step=0.1)
+    r2_input = st.number_input("Bucket2 (Income) return (%)", value=8.0, step=0.1)
+    r3_input = st.number_input("Bucket3 (Growth) return (%)", value=12.0, step=0.1)
+    tax_rate = st.number_input("Tax rate on returns (%)", value=10.0, step=0.1) / 100.0
+    # convert to decimals for internal use
+    r1 = r1_input / 100.0
+    r2 = r2_input / 100.0
+    r3 = r3_input / 100.0
 
     st.markdown("**Initial allocations (%)**")
-    a1 = st.number_input("Bucket1 %", value=20.0, step=1.0)
-    a2 = st.number_input("Bucket2 %", value=40.0, step=1.0)
-    a3 = st.number_input("Bucket3 %", value=40.0, step=1.0)
-
-    # normalize allocations and guard against zero-sum
-    total_alloc = a1 + a2 + a3
-    if total_alloc <= 0:
-        st.warning("Allocations sum to zero or negative. Resetting to defaults (20/40/40).")
-        a1, a2, a3 = 20.0, 40.0, 40.0
-        total_alloc = 100.0
-    a1, a2, a3 = a1 / total_alloc, a2 / total_alloc, a3 / total_alloc
+    # Read user inputs for allocations; these may be adjusted if use_b1_years is True
+    a1_input = st.number_input("Bucket1 % (will be overridden if B1 default option is used)", value=20.0, step=1.0)
+    a2_input = st.number_input("Bucket2 %", value=40.0, step=1.0)
+    a3_input = st.number_input("Bucket3 %", value=40.0, step=1.0)
 
     years = st.number_input("Projection years", value=30, min_value=1, max_value=100, step=1)
     withdraw_escalation = st.number_input("Annual withdrawal escalation (%)", value=2.5, step=0.1) / 100.0
@@ -111,9 +129,6 @@ with st.sidebar:
     refill_priority = st.selectbox("Refill priority", ["Bucket 2 then 3", "Bucket 3 then 2"])
     refill_pct = st.number_input("Refill amount to target (%)", value=100.0, min_value=0.0, max_value=200.0) / 100.0
 
-    st.markdown("---")
-    run_tests = st.button("Run internal tests")
-
 # -------------------------
 # Helper utilities
 # -------------------------
@@ -122,6 +137,44 @@ def roundv(x):
         return float(np.round(x, 2))
     except Exception:
         return x
+
+# -------------------------
+# Compute allocations, applying B1 default if requested
+# -------------------------
+# Start with user-provided allocation inputs
+a1_pct = float(a1_input)
+a2_pct = float(a2_input)
+a3_pct = float(a3_input)
+
+if use_b1_years:
+    # Compute desired B1 amount = yearly expense * years
+    yearly_expense = monthly_spend0 * 12.0
+    desired_b1_amount = yearly_expense * float(b1_years)
+    # Convert to percent of current_total
+    desired_a1_pct = (desired_b1_amount / current_total) * 100.0 if current_total > 0 else 0.0
+    # Cap to 99% to leave room for other buckets
+    desired_a1_pct = min(desired_a1_pct, 99.0)
+    a1_pct = desired_a1_pct
+    # Scale remaining user inputs (a2_input, a3_input) to fill remaining percent
+    remaining_pct = 100.0 - a1_pct
+    rem_inputs = a2_input + a3_input
+    if rem_inputs <= 0:
+        # default split 50/50 of remaining
+        a2_pct = remaining_pct * 0.5
+        a3_pct = remaining_pct * 0.5
+    else:
+        a2_pct = (a2_input / rem_inputs) * remaining_pct
+        a3_pct = (a3_input / rem_inputs) * remaining_pct
+
+# Normalize to fractions
+total_alloc_pct = a1_pct + a2_pct + a3_pct
+if total_alloc_pct <= 0:
+    a1_pct, a2_pct, a3_pct = 20.0, 40.0, 40.0
+    total_alloc_pct = 100.0
+
+a1 = a1_pct / total_alloc_pct
+a2 = a2_pct / total_alloc_pct
+a3 = a3_pct / total_alloc_pct
 
 # -------------------------
 # Simulation function (no crash, no rebalancing)
@@ -139,6 +192,11 @@ def simulate():
 
     # annual spend derived from monthly input
     annual_spend = monthly_spend * 12.0
+
+    # Effective returns after tax (simple model: apply tax_rate to returns)
+    r1_eff = r1 * (1.0 - tax_rate)
+    r2_eff = r2 * (1.0 - tax_rate)
+    r3_eff = r3 * (1.0 - tax_rate)
 
     for year in range(0, int(years) + 1):
         age = current_age + year
@@ -164,14 +222,13 @@ def simulate():
         if year == years:
             break
 
-        # Apply returns (annual)
-        b1 *= (1 + r1)
-        b2 *= (1 + r2)
-        b3 *= (1 + r3)
+        # Apply returns (annual) using effective (post-tax) returns
+        b1 *= (1 + r1_eff)
+        b2 *= (1 + r2_eff)
+        b3 *= (1 + r3_eff)
 
-        # Escalate spending annually (apply withdrawal escalation and inflation)
+        # Escalate spending annually (apply withdrawal escalation)
         if year > 0:
-            # escalate monthly spend by withdrawal_escalation (user-provided)
             monthly_spend *= (1 + withdraw_escalation)
             annual_spend = monthly_spend * 12.0
 
@@ -261,7 +318,7 @@ total_by_age = df.set_index("Age")["Total"] / unit_factor
 st.line_chart(total_by_age)
 
 st.subheader("Projection Table (includes Age)")
-st.caption(f"Monetary values shown in **{unit_label}**. Inputs are entered in Rs.")
+st.caption(f"Monetary values shown in **{unit_label}**. Inputs are entered in ₹.")
 st.dataframe(df_display, height=420)
 
 st.subheader("Bucket Composition Over Time")
@@ -312,10 +369,12 @@ else:
 # -------------------------
 st.subheader("Export")
 csv_bytes = df_export.to_csv(index=False).encode("utf-8")
+# sanitize unit_choice for filename
+unit_fname = unit_choice.split()[0].lower().replace("(", "").replace(")", "")
 st.download_button(
     f"Download projection CSV ({unit_label})",
     data=csv_bytes,
-    file_name=f"retirement_projection_{unit_label.lower()}_{datetime.now().date()}.csv",
+    file_name=f"retirement_projection_{unit_fname}_{datetime.now().date()}.csv",
     mime="text/csv"
 )
 
@@ -375,54 +434,8 @@ pdf_bytes = create_pdf_bytes()
 st.download_button(
     f"Download PDF report ({unit_label})",
     data=pdf_bytes,
-    file_name=f"retirement_report_{unit_label.lower()}_{datetime.now().date()}.pdf",
+    file_name=f"retirement_report_{unit_fname}_{datetime.now().date()}.pdf",
     mime="application/pdf"
 )
 
-st.markdown(f"**Notes:** This simulator displays monetary values in **{unit_label}**. Inputs are entered in Rs; exports and charts reflect the selected unit. Monthly spending is escalated annually by the withdrawal escalation rate.")
-
-# -------------------------
-# Built-in deterministic tests (adjusted for monthly spending)
-# -------------------------
-def run_internal_tests():
-    results = []
-    # Test 1: allocations normalized
-    alloc_sum = a1 + a2 + a3
-    results.append(("Allocations normalized to 1.0", np.isclose(alloc_sum, 1.0)))
-
-    # Test 2: total conservation at year 0
-    row0 = df.iloc[0]
-    results.append(("Initial total equals current_total", np.isclose(row0["Total"], current_total)))
-
-    # Test 3: refill recorded when initial B1 < target
-    monthly_spend = monthly_spend0
-    target_b1 = monthly_spend * refill_months
-    initial_b1 = current_total * a1
-    refill_happened = df["Refill Inflow B1"].sum() > 0
-    if initial_b1 < target_b1:
-        results.append(("Refill occurred when initial B1 < target", bool(refill_happened)))
-    else:
-        results.append(("Refill not required initially (B1 >= target)", True))
-
-    # Test 4: final total finite
-    final_total = df.iloc[-1]["Total"]
-    results.append(("Final total is finite number", np.isfinite(final_total)))
-
-    # Test 5: final total not NaN
-    results.append(("Final total not NaN", not pd.isna(final_total)))
-
-    return results
-
-if run_tests:
-    st.subheader("Internal Test Results")
-    test_results = run_internal_tests()
-    all_pass = all(p for _, p in test_results)
-    if all_pass:
-        st.success("All internal tests passed")
-    else:
-        st.error("Some tests failed — see details below")
-    for name, passed in test_results:
-        if passed:
-            st.write(f"✅ {name}")
-        else:
-            st.write(f"❌ {name}")
+st.markdown(f"**Notes:** This simulator displays monetary values in **{unit_label}**. Inputs are entered in ₹; exports and charts reflect the selected unit. Monthly spending is escalated annually by the withdrawal escalation rate. Returns in the model are reduced by the tax rate you entered (simple post-tax approximation).")
