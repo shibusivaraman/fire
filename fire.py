@@ -411,36 +411,39 @@ ax.set_ylabel(f"Amount ({unit_label})")
 ax.set_xlabel("Age")
 st.pyplot(fig)
 
-# Transfers visualization (Age on x-axis)
-st.subheader("Transfers Visualization")
+# -------------------------
+# Refill Transfers Visualization (IMPROVED: Stacked bar chart by source)
+# -------------------------
+st.subheader("Refill Transfers by Source")
 if not refill_df.empty:
-    agg = refill_df.groupby("Year")["Amount"].sum() / unit_factor
-    ages = (agg.index + current_age).astype(int)  # Year -> Age
-    fig2, ax2 = plt.subplots(figsize=(8, 3))
-    ax2.bar(ages.astype(str), agg.values, color="#66c2a5")
-    ax2.set_ylabel(f"Refill amount into Bucket1 ({unit_label})")
-    ax2.set_xlabel("Age")
-    st.pyplot(fig2)
-    # show refill table scaled
+    # Pivot to show B2 and B3 amounts separately by year
+    refill_pivot = refill_df.pivot_table(
+        index="Year", columns="Source", values="Amount", aggfunc="sum"
+    ).fillna(0)
+    
+    # Scale to unit and convert Year to Age
+    refill_pivot = refill_pivot / unit_factor
+    refill_pivot.index = refill_pivot.index + current_age  # Convert to Age
+    
+    fig, ax = plt.subplots(figsize=(10, 4))
+    refill_pivot.plot(kind="bar", stacked=True, ax=ax, 
+                      color={"Bucket2": "#ffffb3", "Bucket3": "#bebada"})
+    ax.set_title(f"Refill Transfers by Source (in {unit_label})")
+    ax.set_xlabel("Age")
+    ax.set_ylabel(f"Amount ({unit_label})")
+    ax.legend(title="Refill Source", loc="upper right")
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    st.pyplot(fig)
+    
+    # Detailed refill table
+    st.markdown("**Refill Details (Year-by-Year)**")
     refill_display = refill_df.copy()
     refill_display["Age"] = refill_display["Year"] + current_age
-    refill_display["Amount"] = refill_display["Amount"] / unit_factor
-    refill_display["Amount"] = refill_display["Amount"].round(2)
+    refill_display["Amount"] = (refill_display["Amount"] / unit_factor).round(2)
     st.dataframe(refill_display[["Year", "Age", "Source", "Amount"]].rename(columns={"Amount": f"Amount ({unit_label})"}), height=200)
-
-    # Sankey-like simple flows (approx) using Age labels
-    st.markdown("**Approximate flows into Bucket1 (per age)**")
-    fig_flow, axf = plt.subplots(figsize=(8, 3))
-    years_idx = (agg.index + current_age).astype(str)  # show ages
-    values = agg.values
-    axf.bar(years_idx, values, color="#66c2a5")
-    for i, v in enumerate(values):
-        axf.annotate(f"{v:,.2f}", xy=(i, v), xytext=(0, 5), textcoords="offset points", ha='center')
-    axf.set_ylabel(f"Amount ({unit_label})")
-    axf.set_xlabel("Age")
-    st.pyplot(fig_flow)
 else:
-    st.info("No refill transfers recorded.")
+    st.info("No refill transfers recorded — Bucket 1 maintained its target balance without needing refills.")
 
 # -------------------------
 # Export: CSV and PDF (charts use Age and scaled units)
@@ -483,14 +486,22 @@ def create_pdf_bytes():
         pdf.savefig(fig1)
         plt.close(fig1)
 
-        # refill bar (Age on x-axis, scaled)
+        # refill stacked bar (Age on x-axis, scaled)
         if not refill_df.empty:
-            agg_pdf = refill_df.groupby("Year")["Amount"].sum() / unit_factor
-            agg_pdf.index = (agg_pdf.index + current_age).astype(int)
-            fig2 = plt.figure(figsize=(8, 3))
-            agg_pdf.plot(kind="bar", color="#66c2a5")
-            plt.title(f"Refill transfers by Age ({unit_label})")
-            plt.xlabel("Age")
+            refill_pivot_pdf = refill_df.pivot_table(
+                index="Year", columns="Source", values="Amount", aggfunc="sum"
+            ).fillna(0)
+            refill_pivot_pdf = refill_pivot_pdf / unit_factor
+            refill_pivot_pdf.index = refill_pivot_pdf.index + current_age
+            
+            fig2 = plt.figure(figsize=(10, 3))
+            refill_pivot_pdf.plot(kind="bar", stacked=True, ax=fig2.gca(),
+                                  color={"Bucket2": "#ffffb3", "Bucket3": "#bebada"})
+            fig2.gca().set_title(f"Refill Transfers by Source ({unit_label})")
+            fig2.gca().set_xlabel("Age")
+            fig2.gca().set_ylabel(f"Amount ({unit_label})")
+            fig2.gca().legend(title="Refill Source", loc="upper right")
+            plt.xticks(rotation=45, ha='right')
             plt.tight_layout()
             pdf.savefig(fig2)
             plt.close(fig2)
